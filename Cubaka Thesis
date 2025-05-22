@@ -10,3 +10,190 @@ D:=(7,14,16,10)(20,23,21,24)(28,35,37,30)(32,39,34,41)(42,47,43,48);
 Cube:=Group(U,L,F,R,B,D);
 #Define an epimorphism from a free group to the generators of Cube
 hom:=EpimorphismFromFreeGroup(Cube:names:=["U","L", "F", "R", "B", "D"]);
+
+
+#First algorithm: Two-pieces Spliting Algorithm (TPSA)
+
+ShortWord := function(hom, word)
+    local i, word1, word2, Imageword1, Imageword2, 
+          Newword1, Newword2, SubNewword, Newword, 
+          BestWord, Leng, ListBest, results,WordLength;
+    
+    BestWord := word;
+        WordLength:=[];
+    Leng := [];
+    ListBest := [];
+    results := [];
+    for i in [1..Length(word) - 1] do
+        word1 := Subword(word, 1, Length(word)-i);
+        word2 := Subword(word, Length(word)-i+1, Length(word));
+        
+        Imageword1 := Image(hom, word1);
+        Imageword2 := Image(hom, word2);
+        Newword1 := PreImagesRepresentative(hom, Imageword1);
+        Newword2 := PreImagesRepresentative(hom, Imageword2);
+        
+        if Length(Newword2) < Length(word2) then
+            SubNewword := Newword2;
+        else
+            SubNewword := word2;
+        fi;
+        
+        if Length(Newword1) < Length(word1)  then
+            Newword := Newword1*SubNewword;
+        else
+            Newword := word1*SubNewword;
+        fi;
+        
+        # Update BestWord only if Newword is better
+        if Length(Newword) < Length(BestWord) then
+            BestWord := Newword;
+ 
+
+        fi;
+        Leng[i] := Length(BestWord);
+        ListBest[i] := BestWord;    
+        results[i] := [i, Length(Newword1), Length(Newword2), Length(Newword)];
+	WordLength[i]:=[i, Length(word1), Length(word2), Length(word)];
+    od;
+    return BestWord;
+end;
+
+#Recording lengths at each split
+
+ShortWordLength := function(hom, word)
+    local i, word1, word2, Imageword1, Imageword2, 
+          Newword1, Newword2, SubNewword, Newword, 
+          BestWord, Leng, ListBest, result,LengthBest, LengthWOrd;
+    
+    BestWord := word;
+        LengthBest:=[];
+    Leng := [];
+    LengthWOrd:=Length(word);
+ #   results := [];
+    for i in [1..Length(word) - 1] do
+        word1 := Subword(word, 1, Length(word)-i);
+        word2 := Subword(word, Length(word)-i+1, Length(word));
+       LengthWOrd:=Length(word);        
+        Imageword1 := Image(hom, word1);
+        Imageword2 := Image(hom, word2);
+        Newword1 := PreImagesRepresentative(hom, Imageword1);
+        Newword2 := PreImagesRepresentative(hom, Imageword2);
+        result:=Newword1*Newword2;
+       # Leng[i] := Length(result);  
+        if Length(Newword2) < Length(word2) then
+            SubNewword := Newword2;
+        else
+            SubNewword := word2;
+        fi;
+        
+        if Length(Newword1) < Length(word1)  then
+            Newword := Newword1*SubNewword;
+        else
+            Newword := word1*SubNewword;
+        fi;
+      
+        Leng[i] := Length(Newword );  
+        # Update BestWord only if Newword is better
+        if Length(Newword) < Length(BestWord) then
+            BestWord := Newword;
+        fi;
+        #Leng[i] := Length(BestWord);
+       # LengthBest := Length(BestWord);    
+      #  results[i] := [i, Length(Newword1), Length(Newword2), Length(Newword)];
+	#WordLength[i]:=[i, Length(word1), Length(word2), Length(word)];
+    od;
+    return [LengthWOrd, Leng, Length(BestWord)];
+#   return [BestWord, Leng, Set(ListBest), results,WordLength];
+#    return BestWord;
+end;
+
+
+#Second algorithm: Product with generators on each side of the word. 
+
+ShorteningWordWithProductOfGenerators := function(hom, word, depth, side)
+    local gens, BestWord, comb, Newword1, Newword2, Newword;
+
+    gens := Concatenation(List(GeneratorsOfGroup(Source(hom)), g -> [g, g^-1]));
+    BestWord := word;
+
+    for comb in Tuples(gens, depth) do
+        if side = "left" then
+            Newword1 := Product(comb) * word;
+            Newword2 := PreImagesRepresentative(hom, Image(hom, Newword1));
+            Newword := Product(List(Reversed(comb), x -> x^-1)) * Newword2;
+        elif side = "right" then
+            Newword1 := word * Product(comb);
+            Newword2 := PreImagesRepresentative(hom, Image(hom, Newword1));
+            Newword := Newword2 * Product(List(Reversed(comb), x -> x^-1));
+        else
+            Error("Side must be 'left' or 'right'");
+        fi;
+
+        if Length(Newword) < Length(BestWord) then
+            BestWord := Newword;
+        fi;
+    od;
+
+    return BestWord;
+end;
+
+#Code to generate random words of different lengths by avoiding inverses to follow each other
+
+GenerateRandomWord := function(hom, length)
+    local word, i, last, choice, gens, src, names, n, mode;
+
+    src := Source(hom);  # Free group
+    names := GeneratorsOfGroup(src);  # e.g. [U, L, F, R, B, D]
+    
+    n := Length(names);  # number of basic generators
+    gens := Concatenation(names, List(names, g -> g^-1));  # [U, L, ..., D, U^-1, ..., D^-1]
+
+    word := One(src);
+    last := 0;
+    mode:= 0;  # "mode" helps track generator type to avoid immediate inverse
+
+    for i in [1..length] do
+        repeat
+            choice := Random([1..2*n]);
+        until i = 1 or mode <> ((choice - 1 + n) mod (2*n)) + 1;
+        
+        word := word * gens[choice];
+        mode := choice;
+    od;
+
+    return word;
+end;
+
+
+#Reccoding lengths for the second algorithm using both sides
+
+ShortWord2Lengths := function(hom, word, depths)
+    local side, depth, result, w;
+
+    result := [];
+    for side in ["left", "right"] do
+    	   for depth in [1..depths] do
+            w := ShorteningWordWithProductOfGenerators(hom, word, depth, side);
+            Add(result, Length(w));
+        od;
+    od;
+
+    return result;
+end;
+#Testing the output 
+Elements100:=List([1..1000], x -> GenerateRandomWord(hom, 100));;
+Elements40:=List([1..1000], x -> GenerateRandomWord(hom, 40));;
+Elements200:=List([1..1000], x -> GenerateRandomWord(hom, 200));;
+List(Elements100, x ->ShortWordLength(hom,  x));
+List(Elements40, x ->ShortWordLength(hom,  x));
+List(Elements200, x ->ShortWordLength(hom,  x));
+
+List(Elements100, x ->ShortWord2Lengths(hom,  x,3));
+List(Elements40, x ->ShortWord2Lengths(hom,  x,3));
+List(Elements200, x ->ShortWord2Lengths(hom,  x,3));
+
+
+
+
+
